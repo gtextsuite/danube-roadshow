@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { BROKER, COMMUNITY_URL, EVENT, dataHolders, whatsappLink } from "@/config/event";
+import { BROKER, EVENT, dataHolders, whatsappLink } from "@/config/event";
 import { PROPERTIES } from "@/config/properties";
 import {
   BUDGETS,
@@ -22,12 +22,11 @@ import {
   type Screen,
 } from "@/lib/registration";
 import { SCROLL_LOCK, SCROLL_UNLOCK } from "./SmoothScroll";
-import { WhatsAppIcon } from "./Icons";
 import RevealText from "./motion/RevealText";
 
-type Step = "form" | "community" | "done";
-/** `day` is only present on passes saved by the earlier version of the form. */
-type Saved = { id: string; firstName: string; joined: boolean; day?: string };
+type Step = "form" | "done";
+/** `joined` and `day` are only present on passes saved by earlier versions of the form. */
+type Saved = { id: string; firstName: string; joined?: boolean; day?: string };
 
 const STORAGE_KEY = "danube-roadshow-registration";
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -172,13 +171,12 @@ export default function Register() {
   const fieldAlert = Object.values(errors).some(Boolean) ? "Check the highlighted answers." : "";
   const message = alert || fieldAlert;
 
-  // Resume an earlier visit: someone who registered but never joined the
-  // community goes back to the community step when they open the form.
+  // Resume an earlier visit: anyone who has already registered sees their pass.
   useEffect(() => {
     const s = readSaved();
     if (s) {
       setSaved(s);
-      setStep(s.joined ? "done" : "community");
+      setStep("done");
     }
     // A reload while the pop-up was open leaves its history marker behind.
     if (historyFlagged()) {
@@ -329,10 +327,10 @@ export default function Register() {
         else setAlert(out.error || "We couldn’t save your registration. Try again in a moment.");
         return;
       }
-      const record: Saved = { id: out.id, firstName: data.fullName.split(" ")[0], joined: false };
+      const record: Saved = { id: out.id, firstName: data.fullName.split(" ")[0] };
       writeSaved(record);
       setSaved(record);
-      setStep("community");
+      setStep("done");
     } catch {
       setAlert("You appear to be offline. Check your connection and try again.");
     } finally {
@@ -344,22 +342,6 @@ export default function Register() {
     setAlert("");
     setErrors({});
     setScreen(SCREEN_ORDER[Math.max(0, SCREEN_ORDER.indexOf(screen) - 1)]);
-  }
-
-  function onJoin() {
-    if (!saved) return;
-    // Record the join in the sheet without delaying the WhatsApp tab.
-    fetch("/api/community", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: saved.id }),
-      keepalive: true,
-    }).catch(() => {});
-    const record = { ...saved, joined: true };
-    writeSaved(record);
-    setSaved(record);
-    // Let the new tab open before the view changes.
-    window.setTimeout(() => setStep("done"), 400);
   }
 
   function reset() {
@@ -380,9 +362,8 @@ export default function Register() {
   const headingRef = (key: string) =>
     (headingCallbacks.current[key] ??= (el: HTMLElement | null) => {
       headings.current[key] = el;
-      // The community and pass views appear after the previous view has faded
-      // out, so focus them as they arrive.
-      if (el && (key === "community" || key === "done") && dialogRef.current?.open) {
+      // The pass view appears after the form has faded out, so focus it as it arrives.
+      if (el && key === "done" && dialogRef.current?.open) {
         el.focus({ preventScroll: true });
       }
     });
@@ -394,8 +375,7 @@ export default function Register() {
           <p className="eyebrow">Free entry, registered guests only</p>
           <RevealText id="register-heading" className="heading" lines={["Reserve", "your seat"]} />
           <p className="register__lead serif-line">
-            Your details and three quick questions. Event updates and directions are shared in the roadshow WhatsApp
-            community.
+            Your details and three quick questions. Your pass appears as soon as you confirm.
           </p>
           <dl className="details">
             <div className="details__row">
@@ -436,15 +416,6 @@ export default function Register() {
               <p>It takes under a minute. No payment, no obligation to buy.</p>
               <button type="button" className="btn btn--solid" onClick={() => openForm()}>
                 Reserve my seat
-              </button>
-            </>
-          ) : !saved.joined ? (
-            <>
-              <h3>One last step, {saved.firstName}</h3>
-              <p>Your details are saved. Join the WhatsApp community to confirm your seat.</p>
-              <button type="button" className="btn btn--whatsapp" onClick={() => openForm()}>
-                <WhatsAppIcon />
-                Join the community
               </button>
             </>
           ) : (
@@ -498,7 +469,7 @@ export default function Register() {
                 </ol>
               </div>
             ) : (
-              <span className="rsvp__count">{step === "community" ? "Last step" : "Your pass"}</span>
+              <span className="rsvp__count">Your pass</span>
             )}
             <button type="button" className="rsvp__close" onClick={closeForm} aria-label="Close">
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -737,42 +708,6 @@ export default function Register() {
                 </motion.div>
               )}
 
-              {step === "community" && saved && (
-                <motion.div
-                  key="community"
-                  className="gate"
-                  initial={{ opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -12 }}
-                  transition={{ duration: 0.45, ease: EASE }}
-                >
-                  <h3 id="rsvp-h-community" ref={headingRef("community")} tabIndex={-1}>
-                    One last step, {saved.firstName}: join the community
-                  </h3>
-                  <p>
-                    Your details are saved. Your seat is confirmed once you join the Danube Roadshow WhatsApp
-                    community, where all event information is shared.
-                  </p>
-                  <ul className="gate__list">
-                    <li>Venue, date and directions</li>
-                    <li>Reminders before the doors open</li>
-                    <li>New launch and payment plan announcements</li>
-                  </ul>
-                  <div className="gate__actions">
-                    <a
-                      className="btn btn--whatsapp"
-                      href={COMMUNITY_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={onJoin}
-                    >
-                      <WhatsAppIcon />
-                      Join the WhatsApp community
-                    </a>
-                  </div>
-                </motion.div>
-              )}
-
               {step === "done" && saved && (
                 <motion.div
                   key="done"
@@ -814,9 +749,6 @@ export default function Register() {
                     </dl>
                   </div>
                   <div className="pass__actions">
-                    <a className="btn" href={COMMUNITY_URL} target="_blank" rel="noopener noreferrer">
-                      Open the community
-                    </a>
                     <a
                       className="text-link"
                       href={whatsappLink(`Hello Danube team, I’ve registered for the Roadshow (ID ${saved.id}) and have a question.`)}
